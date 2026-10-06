@@ -1,0 +1,22 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Downloaded on first run (re-downloaded automatically)
+models/*.task
+models/*.part
+
+# Generated on first run
+memes.json
+
+# Your personal snapshots (contain your face!)
+snapshots/*.png
+snapshots/*.jpg
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

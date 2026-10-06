@@ -1,0 +1,90 @@
+{
+  "_help": {
+    "mode": "auto = use MediaPipe's reading of the image (falls back to manual_vector if no face found). manual = always use manual_vector. blend = average of detected and manual_vector (good when something blocks the face). gesture = no face matching; triggered by a hand gesture instead.",
+    "manual_vector": "Blendshape name -> 0..1. Only list the ones that matter; the rest count as 0."
+  },
+  "memes": [
+    {
+      "id": "wince",
+      "label": "The Wince",
+      "image": "memes/wince.png",
+      "mode": "auto",
+      "manual_vector": {
+        "eyeBlinkLeft": 0.8, "eyeBlinkRight": 0.8,
+        "eyeSquintLeft": 0.6, "eyeSquintRight": 0.6,
+        "browDownLeft": 0.6, "browDownRight": 0.6,
+        "noseSneerLeft": 0.4, "noseSneerRight": 0.4,
+        "cheekSquintLeft": 0.4, "cheekSquintRight": 0.4,
+        "mouthPucker": 0.5, "mouthFunnel": 0.2,
+        "mouthShrugLower": 0.3, "jawOpen": 0.1
+      }
+    },
+    {
+      "id": "grimace",
+      "label": "Cheeky Smile",
+      "image": "memes/grimace.png",
+      "mode": "auto",
+      "manual_vector": {
+        "eyeSquintLeft": 0.7, "eyeSquintRight": 0.7,
+        "eyeBlinkLeft": 0.3, "eyeBlinkRight": 0.3,
+        "browDownLeft": 0.5, "browDownRight": 0.5,
+        "noseSneerLeft": 0.6, "noseSneerRight": 0.6,
+        "mouthUpperUpLeft": 0.6, "mouthUpperUpRight": 0.6,
+        "mouthLowerDownLeft": 0.4, "mouthLowerDownRight": 0.4,
+        "mouthStretchLeft": 0.3, "mouthStretchRight": 0.3,
+        "jawOpen": 0.15
+      }
+    },
+    {
+      "id": "smug",
+      "label": "Big Brain Smirk",
+      "image": "memes/smug.png",
+      "mode": "auto",
+      "manual_vector": {
+        "mouthSmileLeft": 0.5, "mouthSmileRight": 0.3,
+        "mouthPressLeft": 0.3, "mouthPressRight": 0.3,
+        "eyeSquintLeft": 0.4, "eyeSquintRight": 0.4,
+        "browDownLeft": 0.2, "browDownRight": 0.2,
+        "cheekSquintLeft": 0.3, "cheekSquintRight": 0.3
+      }
+    },
+    {
+      "id": "who_me",
+      "label": "Who, Me?",
+      "image": "memes/who_me.png",
+      "mode": "auto",
+      "manual_vector": {
+        "eyeWideLeft": 0.5, "eyeWideRight": 0.5,
+        "browInnerUp": 0.5,
+        "browOuterUpLeft": 0.3, "browOuterUpRight": 0.3,
+        "jawOpen": 0.15,
+        "mouthFunnel": 0.1
+      }
+    },
+    {
+      "id": "hands_up",
+      "label": "Wait, Wait, Wait!",
+      "image": "memes/hands_up.png",
+      "mode": "gesture",
+      "gesture": "hands_up",
+      "manual_vector": {}
+    },
+    {
+      "id": "ugly_cry",
+      "label": "Ugly Cry",
+      "image": "memes/ugly_cry.png",
+      "mode": "auto",
+      "manual_vector": {
+        "jawOpen": 0.6,
+        "mouthFrownLeft": 0.7, "mouthFrownRight": 0.7,
+        "mouthStretchLeft": 0.5, "mouthStretchRight": 0.5,
+        "mouthLowerDownLeft": 0.5, "mouthLowerDownRight": 0.5,
+        "browInnerUp": 0.8,
+        "eyeSquintLeft": 0.5, "eyeSquintRight": 0.5,
+        "eyeBlinkLeft": 0.3, "eyeBlinkRight": 0.3,
+        "cheekSquintLeft": 0.4, "cheekSquintRight": 0.4,
+        "mouthUpperUpLeft": 0.3, "mouthUpperUpRight": 0.3
+      }
+    }
+  ]
+}
