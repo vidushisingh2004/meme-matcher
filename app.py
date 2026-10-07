@@ -24,29 +24,26 @@ from matcher import TAKES, HoldFlag, Matcher
 
 WINDOW = "Meme Matcher"
 FONT = cv2.FONT_HERSHEY_SIMPLEX
-PANEL = 540  # height of the video, and width/height of the meme panel
+PANEL = 540  # height of the video
 FRAME_PATH = os.path.join(ROOT, "frame.jpg")   # decorative border (optional)
 VIEW_W, VIEW_H = 960, PANEL                    # size of the left (camera) side
 CAM_W, CAM_H = 880, 470                       # camera window inside the frame
-MEME_SIZE = 460                               # meme window inside its frame
+MEME_SCALE = 1.8                              # max meme size relative to your face
+MEME_GAP = 6                                  # px between the meme and your face
+SWITCH_PAUSE = 1.0                            # seconds your face shows between memes
+INSET = 190                                   # reference meme size while training
 
 
 # ---------------------------------------------------------------- drawing ---
 def put_text(img, text, org, scale=0.7, color=(255, 255, 255), thick=2):
-    cv2.putText(img, text, org, FONT, scale, (0, 0, 0), thick + 3, cv2.LINE_AA)
+    # Outline = black copies nudged around the text. (A thicker black stroke gets
+    # wider letter spacing in OpenCV, which showed up as a ghost second line.)
+    x, y = org
+    for dx in (-2, 0, 2):
+        for dy in (-2, 0, 2):
+            if dx or dy:
+                cv2.putText(img, text, (x + dx, y + dy), FONT, scale, (0, 0, 0), thick, cv2.LINE_AA)
     cv2.putText(img, text, org, FONT, scale, color, thick, cv2.LINE_AA)
-
-
-def fit(img, w, h, bg=(28, 28, 28)):
-    """Resize img to fit inside w x h without stretching (letterboxed)."""
-    ih, iw = img.shape[:2]
-    s = min(w / iw, h / ih)
-    nw, nh = max(1, int(iw * s)), max(1, int(ih * s))
-    interp = cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC
-    canvas = np.full((h, w, 3), bg, np.uint8)
-    x, y = (w - nw) // 2, (h - nh) // 2
-    canvas[y:y + nh, x:x + nw] = cv2.resize(img, (nw, nh), interpolation=interp)
-    return canvas
 
 
 def darken_bar(img, y0, y1, alpha=0.55):
@@ -88,14 +85,53 @@ def load_frame(w, h, cw, ch):
     return bg, (x, y)
 
 
-def blank_panel(message, sub=None):
-    p = np.full((PANEL, PANEL, 3), (28, 28, 28), np.uint8)
-    (tw, _), _ = cv2.getTextSize(message, FONT, 0.9, 2)
-    put_text(p, message, ((PANEL - tw) // 2, PANEL // 2), 0.9)
-    if sub:
-        (sw, _), _ = cv2.getTextSize(sub, FONT, 0.55, 1)
-        put_text(p, sub, ((PANEL - sw) // 2, PANEL // 2 + 36), 0.55, (180, 180, 180), 1)
-    return p
+def face_box(landmarks, src_w, src_h, view_w, view_h):
+    """Face bounding box (cx, cy, w, h) in view pixels. The view is the camera
+    frame mirrored and run through cover(), so apply the same transform here."""
+    xs = np.array([p.x for p in landmarks])
+    ys = np.array([p.y for p in landmarks])
+    s = max(view_w / src_w, view_h / src_h)
+    ox, oy = (src_w * s - view_w) / 2, (src_h * s - view_h) / 2
+    x0, x1 = (1 - xs.max()) * src_w * s - ox, (1 - xs.min()) * src_w * s - ox   # mirrored
+    y0, y1 = ys.min() * src_h * s - oy, ys.max() * src_h * s - oy
+    return np.array([(x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0])
+
+
+def meme_spot(img, box, view_w, view_h):
+    """Where to put the meme so it never covers the face: beside it, or above
+    the head when there's no room at the sides. Returns (cx, cy, w, h) for overlay()."""
+    ih, iw = img.shape[:2]
+    fx, fy, fw, fh = box
+    top, left, right = fy - fh / 2 - MEME_GAP, fx - fw / 2 - MEME_GAP, fx + fw / 2 + MEME_GAP
+    side_h = min(view_h, fh * MEME_SCALE)
+    # (available w, available h, how to center the fitted meme)
+    slots = [
+        (fw * MEME_SCALE, min(top, fh * MEME_SCALE), lambda w, h: (fx, top - h / 2)),
+        (min(left, fw * MEME_SCALE), side_h, lambda w, h: (left - w / 2, fy)),
+        (min(view_w - right, fw * MEME_SCALE), side_h, lambda w, h: (right + w / 2, fy)),
+    ]
+    fit_scale = lambda t: max(0, min(t[0] / iw, t[1] / ih))
+    # Prefer beside the face; go above only if neither side has much room.
+    best = max(slots, key=lambda t: fit_scale(t) * (1.0 if t is slots[0] else 1.5))
+    s = max(0, min(best[0] / iw, best[1] / ih))
+    w, h = max(2, iw * s), max(2, ih * s)
+    cx, cy = best[2](w, h)
+    return (min(max(cx, w / 2), view_w - w / 2), min(max(cy, h / 2), view_h - h / 2), w, h)
+
+
+def overlay(view, img, cx, cy, w, h):
+    """Paste img (kept in proportion) centered on (cx, cy), fitted inside w x h
+    and clipped to the view, with a thin white border."""
+    ih, iw = img.shape[:2]
+    s = min(w / iw, h / ih)
+    nw, nh = max(2, int(iw * s)), max(2, int(ih * s))
+    x0, y0 = int(cx - nw / 2), int(cy - nh / 2)
+    small = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC)
+    cv2.rectangle(small, (0, 0), (nw - 1, nh - 1), (255, 255, 255), 3)
+    vh, vw = view.shape[:2]
+    X0, Y0, X1, Y1 = max(0, x0), max(0, y0), min(vw, x0 + nw), min(vh, y0 + nh)
+    if X1 > X0 and Y1 > Y0:
+        view[Y0:Y1, X0:X1] = small[Y0 - y0:Y1 - y0, X0 - x0:X1 - x0]
 
 
 # ------------------------------------------------------------------ setup ---
@@ -162,7 +198,7 @@ def main():
         img = cv2.imread(os.path.join(ROOT, m["image"]))
         if img is None:
             raise SystemExit(f"Can't read meme image: {m['image']}")
-        meme_img[m["id"]] = fit(img, PANEL, PANEL)
+        meme_img[m["id"]] = img
 
     gesture_memes = {m["gesture"]: m for m in library if m.get("gesture") in GESTURES}
     use_hands = bool(gesture_memes) and not args.no_hands
@@ -182,12 +218,13 @@ def main():
         )
 
     framed = load_frame(VIEW_W, VIEW_H, CAM_W, CAM_H)
-    meme_framed = load_frame(PANEL, PANEL, MEME_SIZE, MEME_SIZE)
     vw_, vh_ = (CAM_W, CAM_H) if framed else (VIEW_W, VIEW_H)
 
     cv2.namedWindow(WINDOW, cv2.WINDOW_AUTOSIZE)
     debug, toast, toast_until = False, "", 0.0
     fps, t_prev = 0.0, time.time()
+    shown, pause_until = None, 0.0   # meme on screen; when the face-only pause ends
+    box = None     # smoothed face box (cx, cy, w, h) the meme is pinned to
     train = None   # {"queue": [meme ids], "start": when the current one begins}
     TRAIN_COUNTDOWN = 3.0
     print("Running. Make faces! (q to quit)")
@@ -246,10 +283,23 @@ def main():
         # ---- compose the display -------------------------------------------
         view = cover(cv2.flip(frame, 1), vw_, vh_)
 
+        # Changing memes: drop the old one, show your bare face, then reveal the new.
+        now = time.time()
+        if shown and meme_id != shown:
+            shown = None
+            if meme_id:
+                pause_until = now + SWITCH_PAUSE
+        if meme_id and not shown and now >= pause_until:
+            shown = meme_id
+
+        if face_found:
+            raw = face_box(face_res.face_landmarks[0], frame.shape[1], frame.shape[0], vw_, vh_)
+            box = raw if box is None else box + 0.5 * (raw - box)   # smooth the jitter
+        else:
+            box = None
+
         if train:
             tid, take = train["queue"][0]
-            panel = meme_img[tid].copy()
-            darken_bar(panel, 0, 44)
             if train.get("capturing"):
                 msg = "HOLD IT!"
             elif not face_found:
@@ -257,16 +307,16 @@ def main():
             else:
                 msg = (f"Copy this face... {max(1, int(train['start'] - time.time()) + 1)}"
                        f"  ({take + 1}/{TAKES})")
-            put_text(panel, msg, (14, 31), 0.85, (120, 255, 160))
-            darken_bar(panel, PANEL - 40, PANEL)
-            put_text(panel, f"training {meme_by_id[tid]['label']} (Esc cancels)",
-                     (14, PANEL - 14), 0.55)
-        elif meme_id:
-            panel = meme_img[meme_id]
-        elif not face_found and not hands_active:
-            panel = blank_panel("No face detected", "Move into frame / add light")
-        else:
-            panel = blank_panel("Make a face!", "Exaggerate it - memes are extreme")
+            darken_bar(view, vh_ - 70, vh_)
+            put_text(view, msg, (14, vh_ - 40), 0.85, (120, 255, 160))
+            put_text(view, f"training {meme_by_id[tid]['label']} (Esc cancels)",
+                     (14, vh_ - 14), 0.55)
+            overlay(view, meme_img[tid], vw_ - INSET // 2 - 12, 30 + INSET // 2 + 6, INSET, INSET)
+        elif shown:
+            if box is not None:
+                overlay(view, meme_img[shown], *meme_spot(meme_img[shown], box, vw_, vh_))
+            else:                              # gesture meme, no face to avoid
+                overlay(view, meme_img[shown], vw_ / 2, vh_ / 2, vh_ * 0.8, vh_ * 0.8)
 
         # HUD on the video side
         darken_bar(view, 0, 30)
@@ -283,7 +333,8 @@ def main():
                 put_text(view, f"{s:.2f}", (280, y), 0.5, (255, 255, 255), 1)
 
         if time.time() < toast_until:
-            put_text(view, toast, (10, vh_ - 14), 0.7, (120, 255, 160))
+            # while training, the bottom bar owns the bottom edge; sit above it
+            put_text(view, toast, (10, vh_ - (84 if train else 14)), 0.7, (120, 255, 160))
 
         if framed:
             left = framed[0].copy()
@@ -291,14 +342,7 @@ def main():
             left[y:y + CAM_H, x:x + CAM_W] = view
         else:
             left = view
-        if meme_framed:
-            right = meme_framed[0].copy()
-            x, y = meme_framed[1]
-            right[y:y + MEME_SIZE, x:x + MEME_SIZE] = cv2.resize(
-                panel, (MEME_SIZE, MEME_SIZE), interpolation=cv2.INTER_AREA)
-        else:
-            right = panel
-        canvas = np.hstack([left, right])
+        canvas = left
         cv2.imshow(WINDOW, canvas)
 
         # ---- keys ----------------------------------------------------------
@@ -343,7 +387,6 @@ def main():
         if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
             break
 
-        now = time.time()
         fps = 0.9 * fps + 0.1 * (1.0 / max(1e-6, now - t_prev))
         t_prev = now
 
